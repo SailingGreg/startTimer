@@ -26,6 +26,7 @@ if not PY3:
 
 switchlistener = 0
 # global flags
+g_horn_time = 1.5 # number of seconds to sound the horn
 g_horn = 0
 g_running = 1 # loop until exit
 g_started = 0 # not started the count
@@ -87,7 +88,7 @@ def button_recall(event):
     #cad.lcd.clear()
     #event.chip.lcd.set_cursor(15,1)
     #event.chip.lcd.write("Stop") # str(event.pin_num))
-    Horn_queue.put(1)
+    Horn_queue.put(g_horn_time)
     #if g_started == 1:
        # sound horn should also put a guard here as we should only allow this if we have started!
        # if we haven't started this could be used for AP
@@ -110,7 +111,7 @@ def button_start_stop(event):
        if (g_timer_started == 0): # have pressed the start for the first time
            g_timer_started = 1
            #run_cmd(TURN_ON)
-           Horn_queue.put(1)
+           Horn_queue.put(g_horn_time)
            #g_horn = 1
     else:
        g_started = 0
@@ -240,10 +241,10 @@ if __name__ == "__main__":
           #run_cmd(TURN_ON)
           if (g_start_time == ONE_MIN):
               #g_horn = 2 # long sound
-              Horn_queue.put(2)
+              Horn_queue.put(2 * g_horn_time)
           else:
               #g_horn = 1 # standard sound
-              Horn_queue.put(1)
+              Horn_queue.put(g_horn_time)
 
        if (g_start_time == 0): # time to start!
           g_race_started = 1
