@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 
 #
-# Version 0.4 21st July 2015
+# Version 0.5 21st July 2015
 #
 # 0.1 - the initial version which used shell to control GPIO pin 17
 # 0.2 - uses file io to control GPIO pin 17 so there no 'shelling'
 # 0.3 - fixed timing loop and extended functional logic 
 # 0.4 - added threading for control of the the external relay
+# 0.5 - changed time to 1.5 seconds via g_horn_time
+# 0.6 - allow horn_time to be specified by file horn_time.conf
 #
 
 import sys
@@ -26,6 +28,7 @@ if not PY3:
 
 switchlistener = 0
 # global flags
+g_horn_time_def = 1.5 # number of seconds to sound the horn
 g_horn_time = 1.5 # number of seconds to sound the horn
 g_horn = 0
 g_running = 1 # loop until exit
@@ -207,6 +210,19 @@ if __name__ == "__main__":
     t = threading.Thread(target=Sound_horn)
     t.daemon = True # note that this is not deamon!
     t.start()
+
+    # check horn time
+    try:
+        hf = open("/home/pi/startTimer/horn_time.conf", mode="r")
+        str = hf.readline()
+        hf_val = float(str.rstrip('\n')) # remove newline
+        if hf_val > 0.0:
+            g_horn_time = hf_val
+        hf.close()
+    except IOError:
+        g_horn_time = g_horn_time_def
+
+    #print ("Using ", g_horn_time)
 
     # initialise display etc
     cad = pifacecad.PiFaceCAD()
