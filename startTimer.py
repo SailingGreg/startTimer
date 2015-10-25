@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 
 #
-# Version 0.5 21st July 2015
+# Version 0.7 25th October 2015
 #
 # 0.1 - the initial version which used shell to control GPIO pin 17
 # 0.2 - uses file io to control GPIO pin 17 so there no 'shelling'
 # 0.3 - fixed timing loop and extended functional logic 
-# 0.4 - added threading for control of the the external relay
+# 0.4 - added threading for control of the the external relay - first release
 # 0.5 - changed time to 1.5 seconds via g_horn_time
 # 0.6 - allow horn_time to be specified by file horn_time.conf
+# 0.7 - record finish times and save to file/email via startTimer.conf
 #
 
 import sys
@@ -20,6 +21,8 @@ from time import localtime, strftime, sleep
 import threading
 #from threading import Timer
 import pifacecad
+import smtplib
+from email.mime.text import MIMEText
 
 PY3 = sys.version_info[0] >= 3
 if not PY3:
@@ -30,6 +33,7 @@ switchlistener = 0
 # global flags
 g_horn_time_def = 1.5 # number of seconds to sound the horn
 g_horn_time = 1.5 # number of seconds to sound the horn
+g_mail_recipent = ""
 g_horn = 0
 g_running = 1 # loop until exit
 g_started = 0 # not started the count
@@ -39,6 +43,13 @@ g_race_started = 0 # has the race started?
 g_def_time = 300
 g_start_time = 300 # 5 minutes
 g_fileid = 0
+g_race_start = datetime.datetime.now()
+g_race_times = [] # list of race finish times
+g_race_file = "/home/pi/startTimer/races/raceresult" + datetime.datetime.now().strftime("%y%m%d-")
+g_race_stime = datetime.datetime.now().strftime("%H:%M")
+# finishing related flags
+g_finishing = 0
+g_button_incr = 0
 ONE_MIN = 60
 FOUR_MINS = 4 * ONE_MIN
 ltime = localtime() # the local time
@@ -70,6 +81,62 @@ def run_cmd(cmd):
        g_fileid.write("0\n")
 
 #
+# module to parse file of parameters
+def parse_file(fname):
+    global g_horn_time
+    global g_mail_recipent
+
+    try:
+        hf = open(fname, mode="r")
+        for str_buff in hf:
+            # parse line = comment or variable
+            lineelms = str_buff.split(" ")
+            if len(str_buff) > 1 and lineelms[0][0] != "#":
+                if lineelms[0] == "horn_time":
+                    hf_val = float(lineelms[1].rstrip('\n')) # remove newline
+                    if hf_val > 0.0:
+                        g_horn_time = hf_val
+                elif lineelms[0] == "email_recipent":
+                    g_mail_recipent = lineelms[1].replace('"', '')
+        hf.close()
+    except IOError:
+        g_horn_time = g_horn_time_def
+
+    #print ("horn_time ", g_horn_time)
+    #print ("email_recipent ", g_mail_recipent)
+
+
+#
+# email results file to defined recipent
+def send_results(fname):
+    #
+    fromaddr = 'ranelaghscapp@gmail.com'
+    subject = "Results email"
+    raceday = datetime.datetime.now().strftime("%d %b %Y")
+
+    # Credentials (if needed)
+    username = 'ranelaghscapp@gmail.com'
+    password = 'R0nel0ghSC'
+
+    #print ("Sending file ", fname)
+    #print ("To ", toaddr)
+    with open (fname) as fp:
+        msg = MIMEText(fp.read())
+
+    msg['Subject'] = "Race results for " + raceday + " " + g_race_stime
+    msg['From'] = fromaddr
+    msg['To'] = g_mail_recipent # from the conf file
+
+    # The actual mail send
+    server = smtplib.SMTP('smtp.gmail.com', 587)
+    server.starttls()
+    server.login(username, password)
+    #server.sendmail(fromaddr, toaddr, message)
+    server.send_message(msg)
+    server.close()
+    # end of send_results()
+
+#
 # uses the toggle switch on the back of the unit - has guard condition so no exit if count started
 # intention is to extend this with menu (one option - exit) so that horn duraction can be changed
 #
@@ -87,11 +154,19 @@ def button_menu(event):
 def button_recall(event):
     global g_running
     global g_started
-    global g_horn
+    global g_horn 
+    global g_race_times
     #cad.lcd.clear()
-    #event.chip.lcd.set_cursor(15,1)
-    #event.chip.lcd.write("Stop") # str(event.pin_num))
-    Horn_queue.put(g_horn_time)
+
+    # need to calculate elapsed time if in 'finish' state
+    if g_finishing == 1:
+        Horn_queue.put(g_horn_time/2) # half the 'standard' time
+        current_time = datetime.datetime.now()
+        elapsed = current_time - g_race_start
+        g_race_times.append(str(elapsed) + " - ("  + current_time.strftime("%H:%M:%S.%f") + ")")
+    else:
+        Horn_queue.put(g_horn_time)
+
     #if g_started == 1:
        # sound horn should also put a guard here as we should only allow this if we have started!
        # if we haven't started this could be used for AP
@@ -105,6 +180,7 @@ def button_start_stop(event):
     global g_started
     global g_timer_started
     global g_horn
+    global g_race_stime # the time the race started
 
     #event.chip.lcd.set_cursor(15,1)
     #event.chip.lcd.write(str(event.pin_num))
@@ -113,8 +189,11 @@ def button_start_stop(event):
        g_stop_timer = 5 # reset to ensure it 5 seconds
        if (g_timer_started == 0): # have pressed the start for the first time
            g_timer_started = 1
-           #run_cmd(TURN_ON)
+
            Horn_queue.put(g_horn_time)
+           # note time for the results file
+           g_race_stime = datetime.datetime.now().strftime("%H:%M")
+
            #g_horn = 1
     else:
        g_started = 0
@@ -126,28 +205,52 @@ def button_reset(event):
     global g_stop_timer
     global g_timer_started
     global g_race_started
+    global g_race_times # list of race finish times
+    global g_button_incr
+    global g_finishing
 
     if g_started == 0:
        g_race_started = 0
        g_timer_started = 0
        g_stop_timer = 5
        g_start_time = g_def_time
+       g_finishing = 0
+       g_button_incr = 0
+
+       race_file = g_race_file + g_race_stime
+       tf = open (race_file, "w+")
+       #tf = open (g_race_file, "w+")
+       #i = 0
+       for i, t in enumerate(g_race_times):
+           # change so format is "2d"
+           tf.write("{0:0=2d}".format(i + 1) + " " + t + "\n")
+       tf.close()
+       del g_race_times[:] # truncate array
+       # email the results file
+       send_results(race_file)
+       # end of button_reset()
 
 def button_incr(event):
     global g_start_time
+    global g_button_incr
     #event.chip.lcd.set_cursor(15,1)
     #event.chip.lcd.write(str(event.pin_num))
     if (g_started == 0 and g_start_time < g_def_time * 3):
        g_start_time = g_start_time + 300 # add 5 minutes
        #update_display()
+    if (g_race_started == 1):
+       g_button_incr = 1 # may also need a time 'guard', say after 4 minutes
 
 def button_decr(event):
     global g_start_time
+    global g_finishing
     #event.chip.lcd.set_cursor(15,1)
     #event.chip.lcd.write(str(event.pin_num))
     if (g_started == 0 and g_start_time >= g_def_time * 2):
        g_start_time = g_start_time - 300 # sub 5 minutes
        #update_display()
+    if (g_race_started == 1 and g_button_incr == 1):
+       g_finishing = 1
 
 # display the current count and time
 def update_display():
@@ -164,7 +267,9 @@ def update_display():
             cad.lcd.write("Start: {:%M:%S}   ".format(d)) # cad.lcd.write("Start: {0:2d}:{1:2d}".format(*min_sec))
     if (g_started == 1):
         cad.lcd.set_cursor(0,0)
-        if (g_race_started == 1):
+        if (g_race_started == 1 and g_finishing == 1): # need to extend so 'finishing' state reflected
+            cad.lcd.write("Fin  : {:%H:%M:%S}".format(d)) # cad.lcd.write("Start: {0:2d}:{1:2d}".format(*min_sec))
+        elif (g_race_started == 1): # need to extend so 'finishing' state reflected
             cad.lcd.write("Race : {:%H:%M:%S}".format(d)) # cad.lcd.write("Start: {0:2d}:{1:2d}".format(*min_sec))
         else:
             cad.lcd.write("Start: {:%M:%S}   ".format(d)) # cad.lcd.write("Start: {0:2d}:{1:2d}".format(*min_sec))
@@ -211,18 +316,8 @@ if __name__ == "__main__":
     t.daemon = True # note that this is not deamon!
     t.start()
 
-    # check horn time
-    try:
-        hf = open("/home/pi/startTimer/horn_time.conf", mode="r")
-        str = hf.readline()
-        hf_val = float(str.rstrip('\n')) # remove newline
-        if hf_val > 0.0:
-            g_horn_time = hf_val
-        hf.close()
-    except IOError:
-        g_horn_time = g_horn_time_def
-
-    #print ("Using ", g_horn_time)
+    # set horn_time and mail_recipent
+    parse_file("/home/pi/startTimer/startTimer.conf")
 
     # initialise display etc
     cad = pifacecad.PiFaceCAD()
@@ -235,10 +330,10 @@ if __name__ == "__main__":
     # while loop - display time
     while (g_running == 1):
        # need to extend this to allow for a 'long' sound, that is a couple of seconds
-       if g_horn > 0:
-          g_horn = g_horn - 1
-          if (g_horn == 0):
-              run_cmd(TURN_OFF)
+       #if g_horn > 0:
+       #   g_horn = g_horn - 1
+       #   if (g_horn == 0):
+       #       run_cmd(TURN_OFF)
 
        if (g_timer_started == 1 and g_race_started == 0): # decrement the seconds
           if (g_started == 1): # if counting
@@ -264,6 +359,8 @@ if __name__ == "__main__":
 
        if (g_start_time == 0): # time to start!
           g_race_started = 1
+          # note time for elapse calc
+          g_race_start = datetime.datetime.now()
 
 
        # this is the tricky bit we increment the time and once we've slept we check the time so that we know what 1 second will be
