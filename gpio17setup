@@ -1,5 +1,11 @@
+#!/bin/bash
+#set -x
 
-echo "17" > /sys/class/gpio/export
+if [ ! -e /sys/class/gpio/gpio17 ]
+then
+	echo "17" > /sys/class/gpio/export
+fi
+sleep 1
 echo "out" > /sys/class/gpio/gpio17/direction
 
-cat /sys/class/gpio/gpio17/value
+#cat /sys/class/gpio/gpio17/value

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 #
-# Version 0.7 25th October 2015
+# Version 0.8 13th February 2016
 #
 # 0.1 - the initial version which used shell to control GPIO pin 17
 # 0.2 - uses file io to control GPIO pin 17 so there no 'shelling'
@@ -10,6 +10,7 @@
 # 0.5 - changed time to 1.5 seconds via g_horn_time
 # 0.6 - allow horn_time to be specified by file horn_time.conf
 # 0.7 - record finish times and save to file/email via startTimer.conf
+# 0.8 - added support for warning and prep lights and added guard for email
 #
 
 import sys
@@ -43,6 +44,8 @@ g_race_started = 0 # has the race started?
 g_def_time = 300
 g_start_time = 300 # 5 minutes
 g_fileid = 0
+g_wfileid = 0
+g_pfileid = 0
 g_race_start = datetime.datetime.now()
 g_race_times = [] # list of race finish times
 g_race_file = "/home/pi/startTimer/races/raceresult" + datetime.datetime.now().strftime("%y%m%d-")
@@ -70,6 +73,18 @@ def Sound_horn():
         g_fileid.write("0\n") # and turn it off
         Horn_queue.task_done()
         time.sleep (0.3) # wait 1/3 sec so there is a definite 'gap' between execution
+
+def Warning_flag(flg):
+    if (flg == TURN_ON):
+        g_wfileid.write("1\n") # turn external device on
+    else:
+        g_wfileid.write("0\n") # turn external device on
+
+def Prep_flag(flg):
+    if (flg == TURN_ON):
+        g_pfileid.write("1\n") # turn external device on
+    else:
+        g_pfileid.write("0\n") # turn external device on
 
 
 # functions to run the commands - cmd would be TURN_ON or TURN_OFF
@@ -170,7 +185,6 @@ def button_recall(event):
     #if g_started == 1:
        # sound horn should also put a guard here as we should only allow this if we have started!
        # if we haven't started this could be used for AP
-       #run_cmd(TURN_ON)
        #g_horn = 1
     #else:
        #g_running = 0 # stop, that is exit for now
@@ -191,8 +205,9 @@ def button_start_stop(event):
            g_timer_started = 1
 
            Horn_queue.put(g_horn_time)
+           Warning_flag(TURN_ON) # start the warning sequence
            # note time for the results file
-           g_race_stime = datetime.datetime.now().strftime("%H:%M")
+           # g_race_stime = datetime.datetime.now().strftime("%H:%M")
 
            #g_horn = 1
     else:
@@ -217,18 +232,23 @@ def button_reset(event):
        g_finishing = 0
        g_button_incr = 0
 
-       race_file = g_race_file + g_race_stime
-       tf = open (race_file, "w+")
-       #tf = open (g_race_file, "w+")
-       #i = 0
-       for i, t in enumerate(g_race_times):
-           # change so format is "2d"
-           tf.write("{0:0=2d}".format(i + 1) + " " + t + "\n")
-       tf.close()
-       del g_race_times[:] # truncate array
-       # email the results file
-       send_results(race_file)
-       # end of button_reset()
+       Warning_flag(TURN_OFF)
+       Prep_flag(TURN_OFF)
+
+       # need guard condition entries > 0?
+       if len(g_race_times) > 0:
+           race_file = g_race_file + g_race_stime
+           tf = open (race_file, "w+")
+           #tf = open (g_race_file, "w+")
+           #i = 0
+           for i, t in enumerate(g_race_times):
+               # change so format is "2d"
+               tf.write("{0:0=2d}".format(i + 1) + " " + t + "\n")
+           tf.close()
+           del g_race_times[:] # truncate array
+           # email the results file
+           send_results(race_file)
+    # end of button_reset()
 
 def button_incr(event):
     global g_start_time
@@ -280,6 +300,8 @@ def update_display():
 def init():
     global switchlistener
     global g_fileid
+    global g_wfileid
+    global g_pfileid
     #global cad
     #cad = pifacecad.PiFaceCAD()
     cad.lcd.blink_off()
@@ -289,6 +311,8 @@ def init():
  
     # open for read/write non-buffered
     g_fileid = open ("/sys/class/gpio/gpio17/value", "r+", 1)
+    g_wfileid = open ("/sys/class/gpio/gpio18/value", "r+", 1)
+    g_pfileid = open ("/sys/class/gpio/gpio27/value", "r+", 1)
     # define the listener
     switchlistener = pifacecad.SwitchEventListener(chip=cad)
 
@@ -329,11 +353,6 @@ if __name__ == "__main__":
 
     # while loop - display time
     while (g_running == 1):
-       # need to extend this to allow for a 'long' sound, that is a couple of seconds
-       #if g_horn > 0:
-       #   g_horn = g_horn - 1
-       #   if (g_horn == 0):
-       #       run_cmd(TURN_OFF)
 
        if (g_timer_started == 1 and g_race_started == 0): # decrement the seconds
           if (g_started == 1): # if counting
@@ -349,18 +368,23 @@ if __name__ == "__main__":
        update_display()
 
        if (g_race_started == 0 and (g_start_time == FOUR_MINS or g_start_time == ONE_MIN or g_start_time == 0)):
-          #run_cmd(TURN_ON)
           if (g_start_time == ONE_MIN):
               #g_horn = 2 # long sound
               Horn_queue.put(2 * g_horn_time)
+              Prep_flag(TURN_OFF)
           else:
               #g_horn = 1 # standard sound
               Horn_queue.put(g_horn_time)
+              if (g_start_time == FOUR_MINS):
+                  Prep_flag(TURN_ON)
 
        if (g_start_time == 0): # time to start!
           g_race_started = 1
+          Warning_flag(TURN_OFF)
           # note time for elapse calc
           g_race_start = datetime.datetime.now()
+          # note the start time for the results
+          g_race_stime = datetime.datetime.now().strftime("%H:%M")
 
 
        # this is the tricky bit we increment the time and once we've slept we check the time so that we know what 1 second will be
@@ -388,6 +412,8 @@ if __name__ == "__main__":
     cad.lcd.backlight_off()
     # close the GPIO control file
     g_fileid.close()
+    g_wfileid.close()
+    g_pfileid.close()
 
     # ensure queue drained
     Horn_queue.join()
