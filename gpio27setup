@@ -1,0 +1,11 @@
+#!/bin/bash
+#set -x
+
+if [ ! -e /sys/class/gpio/gpio27 ]
+then
+	echo "27" > /sys/class/gpio/export
+fi
+sleep 1
+echo "out" > /sys/class/gpio/gpio27/direction
+
+#cat /sys/class/gpio/gpio27/value
