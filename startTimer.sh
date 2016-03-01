@@ -1,6 +1,13 @@
 # start startTimer
 #set -x
 
+if [ ! -d /home/pi/startTimer/races ]
+then
+	mkdir /home/pi/startTimer/races
+	chown pi /home/pi/startTimer/races
+	chgrp pi /home/pi/startTimer/races
+fi
+
 for PIN in 17 18 27; do
     #echo $PIN
     /home/pi/startTimer/gpio${PIN}setup
