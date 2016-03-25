@@ -11,6 +11,7 @@
 # 0.6 - allow horn_time to be specified by file horn_time.conf
 # 0.7 - record finish times and save to file/email via startTimer.conf
 # 0.8 - added support for warning and prep lights and added guard for email
+# 0.9 - updated to use GPIO in place to the file based approach and code tidied up
 #
 
 import sys
@@ -23,6 +24,7 @@ import threading
 #from threading import Timer
 import pifacecad
 import smtplib
+import RPi.GPIO as GPIO # the GPIO gpio library
 from email.mime.text import MIMEText
 
 PY3 = sys.version_info[0] >= 3
@@ -43,9 +45,6 @@ g_timer_started = 0
 g_race_started = 0 # has the race started?
 g_def_time = 300
 g_start_time = 300 # 5 minutes
-g_fileid = 0
-g_wfileid = 0
-g_pfileid = 0
 g_race_start = datetime.datetime.now()
 g_race_times = [] # list of race finish times
 g_race_file = "/home/pi/startTimer/races/raceresult" + datetime.datetime.now().strftime("%y%m%d-")
@@ -68,32 +67,31 @@ TURN_OFF = 0
 def Sound_horn():
     while (True):
         delay = Horn_queue.get()
-        g_fileid.write("1\n") # turn external device on
+        GPIO.output(17, True)
         time.sleep (delay)
-        g_fileid.write("0\n") # and turn it off
+        GPIO.output(17, False)
         Horn_queue.task_done()
         time.sleep (0.3) # wait 1/3 sec so there is a definite 'gap' between execution
 
 def Warning_flag(flg):
     if (flg == TURN_ON):
-        g_wfileid.write("1\n") # turn external device on
+        GPIO.output(18, True)
     else:
-        g_wfileid.write("0\n") # turn external device on
+        GPIO.output(18, False)
 
 def Prep_flag(flg):
     if (flg == TURN_ON):
-        g_pfileid.write("1\n") # turn external device on
+        GPIO.output(27, True)
     else:
-        g_pfileid.write("0\n") # turn external device on
+        GPIO.output(27, False)
 
 
 # functions to run the commands - cmd would be TURN_ON or TURN_OFF
-def run_cmd(cmd):
-    #return subprocess.check_output(cmd, shell=True).decode('utf-8')
+def Toggle_horn(cmd):
     if (cmd == TURN_ON):
-       g_fileid.write("1\n")
+        GPIO.output(17, True)
     else:
-       g_fileid.write("0\n")
+        GPIO.output(17, False)
 
 #
 # module to parse file of parameters
@@ -299,9 +297,6 @@ def update_display():
 
 def init():
     global switchlistener
-    global g_fileid
-    global g_wfileid
-    global g_pfileid
     #global cad
     #cad = pifacecad.PiFaceCAD()
     cad.lcd.blink_off()
@@ -309,10 +304,11 @@ def init():
     cad.lcd.backlight_on()
 
  
-    # open for read/write non-buffered
-    g_fileid = open ("/sys/class/gpio/gpio17/value", "r+", 1)
-    g_wfileid = open ("/sys/class/gpio/gpio18/value", "r+", 1)
-    g_pfileid = open ("/sys/class/gpio/gpio27/value", "r+", 1)
+    # setup GPIO lines
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setup(17, GPIO.OUT)
+    GPIO.setup(18, GPIO.OUT)
+    GPIO.setup(27, GPIO.OUT)
     # define the listener
     switchlistener = pifacecad.SwitchEventListener(chip=cad)
 
@@ -325,7 +321,7 @@ def init():
     switchlistener.register(5, pifacecad.IODIR_FALLING_EDGE, button_menu)
 
     # ensure external signal is off
-    run_cmd(TURN_OFF)
+    Toggle_horn(TURN_OFF)
 
     # start the listeners
     switchlistener.activate()
@@ -410,13 +406,13 @@ if __name__ == "__main__":
     cad.lcd.clear()
     cad.lcd.display_off()
     cad.lcd.backlight_off()
+
     # close the GPIO control file
-    g_fileid.close()
-    g_wfileid.close()
-    g_pfileid.close()
+    GPIO.cleanup()
 
     # ensure queue drained
     Horn_queue.join()
 
     # exit
     sys.exit(0)
+
