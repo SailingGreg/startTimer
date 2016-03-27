@@ -73,6 +73,17 @@ def Sound_horn():
         Horn_queue.task_done()
         time.sleep (0.3) # wait 1/3 sec so there is a definite 'gap' between execution
 
+# routine to sound the buzzer before a time interval
+def Sound_buzzer():
+    while (True):
+        cnt = Buzzer_queue.get()
+        for i in range (1, cnt, 1):
+            GPIO.output(22, True)
+            time.sleep(0.1)
+            GPIO.output(22, False)
+            time.sleep(1/i)
+        Buzzer_queue.task_done()
+
 def Warning_flag(flg):
     if (flg == TURN_ON):
         GPIO.output(18, True)
@@ -309,6 +320,7 @@ def init():
     GPIO.setup(17, GPIO.OUT)
     GPIO.setup(18, GPIO.OUT)
     GPIO.setup(27, GPIO.OUT)
+    GPIO.setup(22, GPIO.OUT)
     # define the listener
     switchlistener = pifacecad.SwitchEventListener(chip=cad)
 
@@ -336,6 +348,12 @@ if __name__ == "__main__":
     t.daemon = True # note that this is not deamon!
     t.start()
 
+    # define another queue for the buzzer loop
+    Buzzer_queue = queue.Queue()
+    tb = threading.Thread(target=Sound_buzzer)
+    tb.daemon = True # note that this is not deamon!
+    tb.start()
+
     # set horn_time and mail_recipent
     parse_file("/home/pi/startTimer/startTimer.conf")
 
@@ -362,6 +380,10 @@ if __name__ == "__main__":
                   g_stop_timer = 5 # reset the count
 
        update_display()
+
+       # start the buzzer cycle to indicate a change is coming in 5 secs
+       if (g_race_started == 0 and (g_start_time == (FOUR_MINS+5) or g_start_time == (ONE_MIN+5) or g_start_time == 5)):
+          Buzzer_queue.put(16)
 
        if (g_race_started == 0 and (g_start_time == FOUR_MINS or g_start_time == ONE_MIN or g_start_time == 0)):
           if (g_start_time == ONE_MIN):
@@ -412,6 +434,7 @@ if __name__ == "__main__":
 
     # ensure queue drained
     Horn_queue.join()
+    Buzzer_queue.join()
 
     # exit
     sys.exit(0)
