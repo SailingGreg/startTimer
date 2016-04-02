@@ -52,6 +52,7 @@ g_race_stime = datetime.datetime.now().strftime("%H:%M")
 # finishing related flags
 g_finishing = 0
 g_button_incr = 0
+g_buzzer_enable = 0
 ONE_MIN = 60
 FOUR_MINS = 4 * ONE_MIN
 ltime = localtime() # the local time
@@ -109,6 +110,7 @@ def Toggle_horn(cmd):
 def parse_file(fname):
     global g_horn_time
     global g_mail_recipent
+    global g_buzzer_enable
 
     try:
         hf = open(fname, mode="r")
@@ -122,6 +124,12 @@ def parse_file(fname):
                         g_horn_time = hf_val
                 elif lineelms[0] == "email_recipent":
                     g_mail_recipent = lineelms[1].replace('"', '')
+                elif lineelms[0] == "buzzer_enable":
+                    hf_val = int(lineelms[1].rstrip('\n')) # remove newline
+                    if hf_val == 1:
+                        g_buzzer_enable = TURN_ON
+                    else:
+                        g_buzzer_enable = TURN_OFF
         hf.close()
     except IOError:
         g_horn_time = g_horn_time_def
@@ -382,8 +390,11 @@ if __name__ == "__main__":
        update_display()
 
        # start the buzzer cycle to indicate a change is coming in 5 secs
-       if (g_race_started == 0 and (g_start_time == (FOUR_MINS+5) or g_start_time == (ONE_MIN+5) or g_start_time == 5)):
-          Buzzer_queue.put(16)
+       if (g_race_started == 0 \
+              and (g_start_time == (FOUR_MINS+5) or g_start_time == (ONE_MIN+5) or g_start_time == 5)):
+          if (g_buzzer_enable == TURN_ON):
+              Buzzer_queue.put(16)
+
 
        if (g_race_started == 0 and (g_start_time == FOUR_MINS or g_start_time == ONE_MIN or g_start_time == 0)):
           if (g_start_time == ONE_MIN):
