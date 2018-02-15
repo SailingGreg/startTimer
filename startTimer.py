@@ -40,7 +40,7 @@ g_mail_recipent = ""
 g_horn = 0
 g_running = 1 # loop until exit
 g_started = 0 # not started the count
-g_stop_timer = 5 # not started the count
+g_stop_timer = 3 # not started the count - changed to 3
 g_timer_started = 0
 g_race_started = 0 # has the race started?
 g_def_time = 300
@@ -87,12 +87,14 @@ def Sound_buzzer():
 
 def Warning_flag(flg):
     if (flg == TURN_ON):
+        time.sleep (0.5) # delay
         GPIO.output(18, True)
     else:
         GPIO.output(18, False)
 
 def Prep_flag(flg):
     if (flg == TURN_ON):
+        time.sleep (0.5) # delay
         GPIO.output(27, True)
     else:
         GPIO.output(27, False)
@@ -217,7 +219,7 @@ def button_start_stop(event):
     #event.chip.lcd.write(str(event.pin_num))
     if g_started == 0:
        g_started = 1
-       g_stop_timer = 5 # reset to ensure it 5 seconds
+       g_stop_timer = 3 # reset to ensure it 3 seconds
        if (g_timer_started == 0): # have pressed the start for the first time
            g_timer_started = 1
 
@@ -244,7 +246,7 @@ def button_reset(event):
     if g_started == 0:
        g_race_started = 0
        g_timer_started = 0
-       g_stop_timer = 5
+       g_stop_timer = 3 # set to 3 seconds
        g_start_time = g_def_time
        g_finishing = 0
        g_button_incr = 0
@@ -377,15 +379,20 @@ if __name__ == "__main__":
     while (g_running == 1):
 
        if (g_timer_started == 1 and g_race_started == 0): # decrement the seconds
-          if (g_started == 1): # if counting
-              g_start_time -= 1
+          g_start_time -= 1 # decr as counting
+          #if (g_started == 1): # if counting
+          if (g_started == 0): # counting stopped
+              g_stop_timer = g_stop_timer - 1
+              if (g_stop_timer == 0):
+                  g_started = 1 # restart the display
+                  g_stop_timer = 3 # reset the count
        elif (g_timer_started == 1 and g_race_started == 1):
           g_start_time += 1
           if (g_started == 0): # counting stopped
               g_stop_timer = g_stop_timer - 1
               if (g_stop_timer == 0):
                   g_started = 1 # restart the display
-                  g_stop_timer = 5 # reset the count
+                  g_stop_timer = 3 # reset the count
 
        update_display()
 
@@ -398,11 +405,9 @@ if __name__ == "__main__":
 
        if (g_race_started == 0 and (g_start_time == FOUR_MINS or g_start_time == ONE_MIN or g_start_time == 0)):
           if (g_start_time == ONE_MIN):
-              #g_horn = 2 # long sound
-              Horn_queue.put(2 * g_horn_time)
               Prep_flag(TURN_OFF)
+              Horn_queue.put(2 * g_horn_time)
           else:
-              #g_horn = 1 # standard sound
               Horn_queue.put(g_horn_time)
               if (g_start_time == FOUR_MINS):
                   Prep_flag(TURN_ON)
